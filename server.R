@@ -65,10 +65,13 @@ server = function(input, output, session) {
       slice(rep(1, input$sim_number))
   })
   
-  # hash dictionary
-  # maintenance duration
-  maintenance_duration = eventReactive(input$gen_rbd, {
-    hash(data()$components, data()$time_to_repair)
+  # data for hashing time to repair
+  data_repair_time = eventReactive(input$gen_rbd, {
+    rbind(
+      data.frame(components = data_simulation()$components, time_to_repair = data_simulation()$time_to_repair),
+      data_simulation() %>% tidyr::drop_na(redundant_fr) %>%
+        select(components = redundant_id, time_to_repair)
+      )
   })
   
   # plot component name
@@ -88,86 +91,84 @@ server = function(input, output, session) {
     cbind(colnames(data_ttf())[apply(data_ttf(), 1, which.min)])
   })
   
-  avsys = function(ttf_turbine)
-  {
-    res = data.frame(rep = double(), fc.afrep = double(), cumt = double())
-    sumr = data.frame(reptime = double(), failnum = double(), tottime = double(), totprod = double())
+  avsys = function(ttf_turbine){ 
+    maintenance_duration = hash(data_repair_time()$components, data_repair_time()$time_to_repair)
+    res = data.frame(rep = double(), fc_afrep = double(), cumt = double()) # multiple rows
+    sumr = data.frame(reptime = double(), failnum = double(), tottime = double()) # single row
     repsum = data.frame(fc_afrep_id = double())
-    time_res = data.frame(residual_time_prod = double())
-    prod_res = data.frame(cumt_prod = double())
+    # time_res = data.frame(residual_time_prod = double())
+    # prod_res = data.frame(cumt_prod = double())
     
-    if(ttf_turbine >= tail(mission_time_vec(), n=1)) {
+    if(ttf_turbine >= input$mission_time) {
       res[1L,] = c(0, 0, 0); 
-      sumr[1L,] = c(0, 0, 0, 0); 
+      sumr[1L,] = c(0, 0, 0); 
       repsum[1L,] = c(NA); 
-      time_res[1L,] = c(0) ; 
-      prod_res[1L,] = c(0)} # #sum.id=c(0) summary of reparation  
+      # time_res[1L,] = c(0) ;
+      # prod_res[1L,] = c(0)
+    }   
     else
     {i = 1L
     repeat
     {
       # reparation time
-      
-      
       #ttf components after reparation
       #--------------------------
       
       afrep_sim_main = (-1/(data_sim_main()/365))*log(1-(c(runif(length(data_sim_main())))))
       afrep_sim_red = (-1/(data_sim_red()/365))*log(1-(c(runif(length(data_sim_red())))))
-      
       afrep_sim = afrep_sim_main
       
       for(i in 1:ncol(afrep_sim)){
-        afrep_sim[, i] = ifelse(data_redundancy_status()[1, i] == "no redundancy", afrep_sim_main()[, i],
+        afrep_sim[, i] = ifelse(data_redundancy_status()[1, i] == "no redundancy", afrep_sim_main[, i],
                                 ifelse(data_redundancy_status()[1, i] == "hot redundancy", 
-                                       ifelse(afrep_sim_main()[, i] > afrep_sim_red()[, i], afrep_sim_main()[, i], afrep_sim_red()[, i]),
-                                       afrep_sim_main()[, i] + afrep_sim_red()[, i]))
-        
+                                       ifelse(afrep_sim_main[, i] > afrep_sim_red[, i], 
+                                              afrep_sim_main[, i], afrep_sim_red[, i]),
+                                       afrep_sim_main[, i] + afrep_sim_red[, i]))
       }
-      
       
       fc_afrep = min(afrep_sim)
       fc_afrep_id = colnames(afrep_sim)[which.min(afrep_sim)]
       
-      
       #################
       # reparation duration after first failure
+      # hash dictionary
+      # maintenance duration
       
-      rep = values(maintenance_duration(), fc_afrep_id)
+      rep = values(maintenance_duration, fc_afrep_id)
       
       
       # result 
       cumt = (rep+fc_afrep) # cumulative time after reparation and follow up random simulation
-      res[i,] = c(rep, fc_afrep, cumt, NA) # summary of reparation, id of other failure, ttf of other failure, cumulative time)
+      res[i,] = c(rep, fc_afrep, cumt) # summary of reparation, id of other failure, ttf of other failure, cumulative time)
       tottime = sum(res$cumt) # cummulative operation time to be compared with mission time
       reptime = sum(res$rep) # total reparation time
       failnum = length(res$rep) # total reparation numbers
       
       # production level after reparation
-      residual_time_prod = ifelse((ttf_turbine + tottime) < tail(mission_time_vec(), n=1), 
-                                  fc_afrep,
-                                  ifelse((ttf_turbine + rep + tottime - cumt) > tail(mission_time_vec(), n=1), 0,
-                                         tail(mission_time_vec(), n=1) - ((tottime - cumt) + ttf_turbine + rep)))
-      prod_afrep = residual_time_prod*prod_daily
+      # residual_time_prod = ifelse((ttf_turbine + tottime) < mission_time, 
+      #                             fc_afrep,
+      #                             ifelse((ttf_turbine + rep + tottime - cumt) > mission_time, 0,
+      #                                    mission_time - ((tottime - cumt) + ttf_turbine + rep)))
+      # prod_afrep = residual_time_prod*prod_daily
       # prod_afrep = fc_afrep_total %>% 
       #   select(line_a:line_b) %>% 
       #   mutate(prod_line_a = (ifelse(line_a >= residual_time_prod, residual_time_prod, line_a))*prod_daily*0.5,
       #          prod_line_b = (ifelse(line_b >= residual_time_prod, residual_time_prod, line_b))*prod_daily*0.5) %>% 
       #   mutate(prod_tot = sum(select(., prod_line_a:prod_line_b)))
-      cumt_prod = prod_afrep
-      time_res[i,] = c(NA, NA, residual_time_prod)
-      prod_res[i,] = c(NA, NA, cumt_prod, )
-      totprod = sum(y + sum(prod_res$cumt_prod))
+      # cumt_prod = prod_afrep
+      # time_res[i,] = c(NA, NA, residual_time_prod)
+      # prod_res[i,] = c(NA, NA, cumt_prod, )
+      # totprod = sum(y + sum(prod_res$cumt_prod))
       
       
-      sumr[1L,] = c(reptime, failnum, tottime, totprod) # summary of reparation time, failure number, and total operating time
-      repsum[i,] = c(fc_afrep_id, NA, NA, NA, NA) # summary of components contributing to system failure
+      sumr[1L,] = c(reptime, failnum, tottime) # summary of reparation time, failure number, and total operating time
+      repsum[i,] = c(fc_afrep_id) # summary of components contributing to system failure
       print(repsum)
-      if (tottime+ttf_turbine >= tail(mission_time_vec(), n=1)) break
+      if (tottime+ttf_turbine >= input$mission_time) break
       i=i+1L
     }
     }
-    return(list(res,sumr,repsum, time_res, prod_res))
+    return(list(res,sumr,repsum))
   }
     
   # simulate repair and maintenance
@@ -193,11 +194,46 @@ server = function(input, output, session) {
     melt(lapply(sum_av_sys()[1:input$sim_number, 1], function(x) ((tail(mission_time_vec(), n=1)-x)/tail(mission_time_vec(), n=1)))) #calculate availability for each iteration
   })
   
+  mean_aval_sys = eventReactive(input$simulate, {
+    mean(aval_sys[,1]) 
+  })
+  
+  # calculate percentage of system sucess without failure
+  rep_no_sys = eventReactive(input$simulate, {
+    melt(sum_av_sys()[1:input$sim_number,2]) #number of failure for each iterations
+  }) 
+  
+  sum_rep_no_sys = eventReactive(input$simulate, {
+    (table(rep_no_sys()[,1])) # distribution of failure numbers and without failures
+  }) 
+  
+  
+  # comparison of number of failure (distribution of failure number for n simulation)
+  mean_rep_no_sys = eventReactive(input$simulate, {
+    mean(rep_no_sys()[,1])  # mean  number of failure during n iteration
+  }) 
+  
+  sd_rep_no_sys = eventReactive(input$simulate, {
+    sd(rep_no_sys()[,1]) # standard deviation
+  }) 
+  
+  # distribution of components causing the system failure
+  sum_fc_sys = eventReactive(input$simulate, {
+    t(lapply(av_sys, "[[", 3))
+  }) 
+  
+  fc_comp_sum = unlist((lapply(sum_fc_sys, "[[", 1)))
+  
+  fc_total = as.data.frame(table(c(fc_comp_sum, ttf_turbine_id))) # taking which component cause the failure for each iterations step 3
+  fc_resume = fc_total %>% 
+    mutate(plot_legend = as.factor(values(plot_legend_dictionary,  fc_total$Var1)),
+           failure_pct = (round(100*Freq/sum(Freq),1))) %>% 
+    arrange(failure_pct)
   
   # debugging
   ########
   output$data_1 <- renderDataTable({
-    data_simulation()
+    data_repair_time()
   }) 
   
   output$data_2 <- renderDataTable({
