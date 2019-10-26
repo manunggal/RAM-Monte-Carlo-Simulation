@@ -75,6 +75,15 @@ server = function(input, output, session) {
   })
   
   # plot component name
+  plot_legend_dictionary = eventReactive(input$gen_rbd, {
+    plot_legend_input = rbind(
+      data.frame(key = data_simulation()$components, value = data_simulation()$components_input),
+      data_simulation() %>% tidyr::drop_na(redundant_fr) %>% 
+        select(key = redundant_id, value = components_input)
+    )
+    plot_legend_dictionary = hash(key = plot_legend_input$key, value = plot_legend_input$value)
+    
+  })
   
   # simulate time to failure
   data_ttf = eventReactive(input$simulate, {
@@ -219,21 +228,63 @@ server = function(input, output, session) {
   
   # distribution of components causing the system failure
   sum_fc_sys = eventReactive(input$simulate, {
-    t(lapply(av_sys, "[[", 3))
+    t(lapply(av_sys(), "[[", 3))
   }) 
   
-  fc_comp_sum = unlist((lapply(sum_fc_sys, "[[", 1)))
+  fc_comp_sum = eventReactive(input$simulate, { 
+    unlist((lapply(sum_fc_sys(), "[[", 1)))
+  })
   
-  fc_total = as.data.frame(table(c(fc_comp_sum, ttf_turbine_id))) # taking which component cause the failure for each iterations step 3
-  fc_resume = fc_total %>% 
-    mutate(plot_legend = as.factor(values(plot_legend_dictionary,  fc_total$Var1)),
-           failure_pct = (round(100*Freq/sum(Freq),1))) %>% 
-    arrange(failure_pct)
+  fc_total = eventReactive(input$simulate, { 
+    as.data.frame(table(c(fc_comp_sum(), ttf_turbine_id()))) 
+    # taking which component cause the failure for each iterations step 3
+  })
+  
+  plot_legend = eventReactive(input$simulate, { 
+    as.factor(values(plot_legend_dictionary(),  fc_total()$Var1))
+  })
+  
+  fc_resume = eventReactive(input$simulate, { 
+    as.data.frame(fc_total(), plot_legend = plot_legend()) %>%
+      mutate(failure_pct = (round(100*Freq/sum(Freq),1))) %>% 
+      arrange(failure_pct)
+  })
+  
+  
+  
+  # render plot
+  output$plot_reliability = renderPlotly({
+    plot_ly() %>% 
+      add_trace(x = mission_time_vec(), y = r_sys_det(), 
+                type = 'scatter', mode = "lines", name = "Deterministic Reliability") %>%
+      add_trace(x = mission_time_vec(), y = r_sys_sim(), 
+                type = 'scatter', mode = "lines", name = "Simulated Reliability") %>%
+      layout(yaxis = list(title = "Reliability (%)"), xaxis = list(title = "Year"), hovermode = 'compare')
+  })
+  
+  output$plot_maintenance = renderPlotly({
+    plot_ly(x = as.integer(names(sum_rep_no_sys())),
+            y = (round(100*sum_rep_no_sys()/sum(sum_rep_no_sys()), 1)),
+            name = paste("Failure Numbers Probability for", input$mission_time, "year(s)") , type = "bar") %>%
+      layout(xaxis = list(title = "Number of Failures", dtick = 1),
+             yaxis = list(title = "Probability of Occurence (%)", dtick= 5),
+             title = paste(as.character(mean_rep_no_sys()), 
+                           "Expected Failure Numbers", "<br>", "for", tail(mission_time_vec(), n=1), "year(s)"),
+             font = list(size = 10))
+  })
+  
+  output$plot_failure_cause = renderPlotly({
+    plot_ly(fc_resume(), x = ~failure_pct, y = ~plot_legend, 
+            type="bar", orientation = 'h') %>%
+      layout(xaxis=list(title="System Failure  (%)"), 
+             yaxis=list(title = "", categoryorder = "array", categoryarray = fc_resume$plot_legend), 
+             title = "Distribution of Components Causing the System Failure")
+  })
   
   # debugging
   ########
   output$data_1 <- renderDataTable({
-    data_repair_time()
+    fc_total()
   }) 
   
   output$data_2 <- renderDataTable({
@@ -246,7 +297,7 @@ server = function(input, output, session) {
   })
   
   output$text_output = renderText({
-    str(av_sys()) 
+    str(plot_legend_dictionary()) 
   })
   ########
   
