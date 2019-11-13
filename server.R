@@ -9,13 +9,14 @@ server = function(input, output, session) {
   # main data input
   data = reactive({
     if (is.null(input$hot)) {
-      DF = data.frame(components_input = paste0(rep("component_", 10), 1:10),
+      DF = data.frame(components_input = paste(rep("component", 10), 1:10),
                       failure_rate = as.numeric(rep(0.01, 10)),
                       time_to_repair = as.numeric(rep(8, 10)),
                       redundancy = factor(rep("no redundancy", 10),
                                           levels = c("no redundancy", "hot redundancy", "cold redundancy")),
                       activate = rep(TRUE, 10)) %>% 
-        mutate_at(vars(components_input), as.character)
+        mutate_at(vars(components_input), as.character) %>% 
+        tibble::rownames_to_column()
     } else {
       DF = hot_to_r(input$hot)
     }
@@ -25,23 +26,79 @@ server = function(input, output, session) {
   
   output$hot <- renderRHandsontable({
     DF <- data()
-    rhandsontable(DF)
+    rhandsontable(DF) %>% 
+      hot_context_menu(allowRowEdit = FALSE, allowColEdit = FALSE)
     # rhandsontable(DF, useTypes = FALSE, selectCallback = TRUE)
   })
   
   data_simulation = eventReactive(input$gen_rbd, {
     data() %>% dplyr::filter(activate == TRUE) %>% 
-      mutate(redundant_id = paste0(components_input, "_B"),
+      mutate(component_id = ifelse(redundancy != "no redundancy", paste0(components_input, "_A"), components_input),
+             redundant_id = paste0(components_input, "_B"),
              redundant_fr = ifelse(redundancy != "no redundancy", failure_rate, NA),
              components = ifelse(redundancy != "no redundancy", paste0(components_input, "_A"), components_input)) 
   })
   
   data_diagram = eventReactive(input$gen_rbd, {
-    data_simulation() %>% dplyr::filterfilter(activate == TRUE) %>%
-      mutate(upstream_conn = ifelse(redundancy != "no redundancy", TRUE, FALSE),
-             downstream_conn = ifelse(redundancy != "no redundancy", TRUE, FALSE),
-             diagram_id = ifelse(redundancy != "no redundancy", paste(components, "B"), NA)) %>% 
-      select(upstream_conn, downstream_conn, components, redundant_id, diagram_id)
+    data_diagram_input = 
+    data_simulation() %>% dplyr::filter(activate == TRUE) %>%
+      # add upstream downstream switch connector
+      mutate(up_switch = ifelse(redundancy != "no redundancy", paste0("up_switch_", rowname), NA),
+             down_switch = ifelse(redundancy != "no redundancy", paste0("down_switch_", rowname), NA),
+             di_component_id = paste0("comp_", rowname),
+             di_redundant_id = ifelse(redundancy != "no redundancy", paste0("comp_", rowname, "_B"), NA)) %>% 
+      # move variable one row 
+      mutate(redundancy_lead = lead(redundancy),
+             di_component_id_lead = lead(di_component_id),
+             component_id_lead = lead(component_id),
+             up_switch_lead = lead(up_switch)) %>% 
+      # select relevant variable to build the diagram
+      select(-c(failure_rate, time_to_repair, redundant_fr)) %>% 
+      # build text for mermaid input
+      mutate(mermaid_input = 
+               ifelse(redundancy != "no redundancy",
+                      paste(
+                        paste0(up_switch, "{", " ", "}", "-->",
+                               di_component_id, "[", component_id, "]"),
+                        paste0(up_switch, "{", " ","}", "-->",
+                               di_redundant_id, "[", redundant_id, "]"),
+                        paste0(di_component_id, "[", component_id, "]", "-->",
+                               down_switch, "{", " ", "}"),
+                        paste0(di_redundant_id, "[", redundant_id, "]", "-->",
+                               down_switch, "{", " ", "}"),
+                        paste0(down_switch, "{", " ", "}", "-->",
+                               ifelse(is.na(redundancy_lead),
+                                      "stop((End))",
+                                      ifelse(redundancy_lead != "no redundancy",
+                                             paste0(up_switch_lead, "{", " ", "}"),
+                                             paste0(di_component_id_lead, "[", component_id_lead, "]"))
+                               )
+                               
+                        ),
+                        sep = "\n"
+                      ),
+                      paste0(di_component_id, "[", component_id, "]", "-->",
+                             ifelse(is.na(redundancy_lead),
+                                    "stop((End))",
+                                    ifelse(redundancy_lead != "no redundancy",
+                                           paste0(up_switch_lead, "{", " ", "}"),
+                                           paste0(di_component_id_lead, "[", component_id_lead, "]"))
+                             )
+                             
+                      )
+               )
+      )
+    
+    diagram_input = paste(data_diagram_input$mermaid_input, collapse = "\n")
+    diagram = paste(
+      paste0("start((Start)) -->", ifelse(data_diagram_input$redundancy[1] != "no redundancy",
+                                          paste0(data_diagram_input$up_switch[1], "{ }"),
+                                          paste0(data_diagram_input$di_component_id[1], "[", data_diagram_input$component_id[1] ,"]"))
+      ),
+      diagram_input,
+      sep = "\n")
+    
+    
     
   })
   
@@ -74,16 +131,24 @@ server = function(input, output, session) {
       )
   })
   
-  # plot component name
-  plot_legend_dictionary = eventReactive(input$gen_rbd, {
-    plot_legend_input = rbind(
-      data.frame(key = data_simulation()$components, value = data_simulation()$components_input),
-      data_simulation() %>% tidyr::drop_na(redundant_fr) %>% 
-        select(key = redundant_id, value = components_input)
-    )
-    plot_legend_dictionary = hash(key = plot_legend_input$key, value = plot_legend_input$value)
-    
-  })
+  # # plot component name
+  # plot_legend_input = eventReactive(input$gen_rbd, {
+  #   
+  #   components_a = data.frame(key = data_simulation()$components, value = data_simulation()$components_input)
+  #   components_b = data_simulation() %>% tidyr::drop_na(redundant_fr) %>%
+  #     select(key = redundant_id, value = components_input)
+  #   plot_legend_input = bind_rows(components_a, components_b)
+  #   
+  #   # plot_legend_dictionary = hash(key = plot_legend_input$key, value = plot_legend_input$value)
+  # 
+  # })
+  # 
+  # # plot component name
+  # plot_legend_dictionary = eventReactive(input$gen_rbd, {
+  # 
+  #   plot_legend_dictionary = hash(keys = plot_legend_input()$key, values = plot_legend_input()$value)
+  #   
+  # })
   
   # simulate time to failure
   data_ttf = eventReactive(input$simulate, {
@@ -240,19 +305,32 @@ server = function(input, output, session) {
     # taking which component cause the failure for each iterations step 3
   })
   
-  plot_legend = eventReactive(input$simulate, { 
-    as.factor(values(plot_legend_dictionary(),  fc_total()$Var1))
+  plot_legend = eventReactive(input$simulate, {
+    plot_legend_input = rbind(
+      data.frame(key = data_simulation()$components, value = data_simulation()$components_input),
+      data_simulation() %>% tidyr::drop_na(redundant_fr) %>% 
+        select(key = redundant_id, value = components_input)
+    )
+    plot_legend_dictionary = hash(keys = plot_legend_input$key, values = plot_legend_input$value)
+    plot_legend = hash::values(plot_legend_dictionary, fc_total()$Var1)
   })
   
   fc_resume = eventReactive(input$simulate, { 
-    as.data.frame(fc_total(), plot_legend = plot_legend()) %>%
-      mutate(failure_pct = (round(100*Freq/sum(Freq),1))) %>% 
+    fc_total() %>%  
+      mutate(plot_legend = plot_legend(),
+             failure_pct = (round(100*Freq/sum(Freq),1))) %>% 
       arrange(failure_pct)
-  })
+  }) 
   
   
   
   # render plot
+  # rbd
+  output$rbd = renderDiagrammeR({
+    mermaid(paste("graph LR", data_diagram(), sep = "\n"))
+  
+  })
+  
   output$plot_reliability = renderPlotly({
     plot_ly() %>% 
       add_trace(x = mission_time_vec(), y = r_sys_det(), 
@@ -277,7 +355,7 @@ server = function(input, output, session) {
     plot_ly(fc_resume(), x = ~failure_pct, y = ~plot_legend, 
             type="bar", orientation = 'h') %>%
       layout(xaxis=list(title="System Failure  (%)"), 
-             yaxis=list(title = "", categoryorder = "array", categoryarray = fc_resume$plot_legend), 
+             yaxis=list(title = "", categoryorder = "array", categoryarray = fc_resume()$plot_legend), 
              title = "Distribution of Components Causing the System Failure")
   })
   
@@ -288,16 +366,16 @@ server = function(input, output, session) {
   }) 
   
   output$data_2 <- renderDataTable({
-    data.frame(ttf_turbine())
+    fc_resume()
   })
   
   output$data_3 <- renderDataTable({
-    data.frame(ttf_turbine_id())
-    
+    plot_legend()
+
   })
   
   output$text_output = renderText({
-    str(plot_legend_dictionary()) 
+    str(data_diagram())
   })
   ########
   

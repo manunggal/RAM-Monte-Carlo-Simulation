@@ -14,6 +14,7 @@ library(reshape2)
 library(hash) 
 library(htmlwidgets)
 library(Rfast)
+library(DiagrammeR)
 
 # function
 
