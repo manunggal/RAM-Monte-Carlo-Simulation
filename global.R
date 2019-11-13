@@ -13,6 +13,8 @@ library(gridExtra)
 library(reshape2)
 library(hash) 
 library(htmlwidgets)
+library(Rfast)
+library(DiagrammeR)
 
 # function
 
@@ -44,7 +46,11 @@ ttf.formula = function(data_sim_main, data_sim_red, data_redundancy_status, sim_
 }
 
 
-#failure reparation simulation
+
+
+
+
+
 
 
 

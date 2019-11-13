@@ -36,7 +36,7 @@ body = dashboardBody(
     box(
       title = "Reliability Block Diagram (RBD)", status = "primary", solidHeader = TRUE,
       width = 8,
-      plotOutput("rbd")
+      DiagrammeROutput("rbd")
     ) 
   ),
   fluidRow(
