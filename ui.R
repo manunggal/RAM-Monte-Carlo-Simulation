@@ -28,7 +28,7 @@ body = dashboardBody(
       br(),
       splitLayout(
         numericInput("mission_time", "Mission Time Duration (Years)", 5, min = 1, max = 20),
-        numericInput("sim_number", "Simulations Number:", 100, min = 10, max = 100000)
+        numericInput("sim_number", "Simulations Number:", 1000, min = 10, max = 10000)
       ),
       actionButton("simulate", "Start Simulation", icon("paper-plane"), 
                    style="color: #fff; background-color: #A52A2A; border-color: #A52A2A")
