@@ -1,5 +1,11 @@
 
 server = function(input, output, session) {
+  start.time <- Sys.time()
+  
+  # simulation setting
+  sim_number = eventReactive(input$simulate, {
+   input$sim_number
+  })
   
   # vector of time (year)
   mission_time_vec = eventReactive(input$simulate, {
@@ -10,13 +16,12 @@ server = function(input, output, session) {
   data = reactive({
     if (is.null(input$hot)) {
       DF = data.frame(components_input = paste(rep("component", 10), 1:10),
-                      failure_rate = as.numeric(rep(0.01, 10)),
+                      failure_rate = as.numeric(rep(0.1, 10)),
                       time_to_repair = as.numeric(rep(8, 10)),
                       redundancy = factor(rep("no redundancy", 10),
                                           levels = c("no redundancy", "hot redundancy", "cold redundancy")),
-                      activate = rep(TRUE, 10)) %>% 
-        mutate_at(vars(components_input), as.character) %>% 
-        tibble::rownames_to_column()
+                      select = rep(TRUE, 10)) %>% 
+        mutate_at(vars(components_input), as.character) 
     } else {
       DF = hot_to_r(input$hot)
     }
@@ -32,16 +37,18 @@ server = function(input, output, session) {
   })
   
   data_simulation = eventReactive(input$gen_rbd, {
-    data() %>% dplyr::filter(activate == TRUE) %>% 
+    data() %>% dplyr::filter(select == TRUE) %>% 
       mutate(component_id = ifelse(redundancy != "no redundancy", paste0(components_input, "_A"), components_input),
              redundant_id = paste0(components_input, "_B"),
              redundant_fr = ifelse(redundancy != "no redundancy", failure_rate, NA),
              components = ifelse(redundancy != "no redundancy", paste0(components_input, "_A"), components_input)) 
   })
   
+
   data_diagram = eventReactive(input$gen_rbd, {
     data_diagram_input = 
-    data_simulation() %>% dplyr::filter(activate == TRUE) %>%
+    data_simulation() %>% dplyr::filter(select == TRUE) %>% 
+      tibble::rownames_to_column() %>% 
       # add upstream downstream switch connector
       mutate(up_switch = ifelse(redundancy != "no redundancy", paste0("up_switch_", rowname), NA),
              down_switch = ifelse(redundancy != "no redundancy", paste0("down_switch_", rowname), NA),
@@ -89,7 +96,9 @@ server = function(input, output, session) {
                )
       )
     
+    # collapse text 
     diagram_input = paste(data_diagram_input$mermaid_input, collapse = "\n")
+    # add start block
     diagram = paste(
       paste0("start((Start)) -->", ifelse(data_diagram_input$redundancy[1] != "no redundancy",
                                           paste0(data_diagram_input$up_switch[1], "{ }"),
@@ -116,16 +125,16 @@ server = function(input, output, session) {
   })
   
   # redundancy option
-  data_redundancy_status = eventReactive(input$gen_rbd, {
+  data_redundancy_status = eventReactive(input$simulate, {
     data_simulation() %>% select(components, redundancy) %>% 
       pivot_wider(names_from = components, values_from = redundancy) %>% 
-      slice(rep(1, input$sim_number))
+      slice(rep(1, sim_number()))
   })
   
   # data for hashing time to repair
   data_repair_time = eventReactive(input$gen_rbd, {
     rbind(
-      data.frame(components = data_simulation()$components, time_to_repair = data_simulation()$time_to_repair),
+      data.frame(components = data_simulation()$components, time_to_repair = data_simulation()$time_to_repair/8760),
       data_simulation() %>% tidyr::drop_na(redundant_fr) %>%
         select(components = redundant_id, time_to_repair)
       )
@@ -150,9 +159,34 @@ server = function(input, output, session) {
   #   
   # })
   
+  # data reliability from equation
+  data_reliability_equation = eventReactive(input$simulate, {
+    data_reliability = matrix(nrow = nrow(data_simulation()), ncol = length(mission_time_vec()))
+    
+    for(i in 1:nrow(data_reliability)){
+      if(data_simulation()$redundancy[i] == "no redundancy"){
+        data_reliability[i,] = exp((-1*data_simulation()$failure_rate[i]*mission_time_vec()))
+      } else{
+        if(data_simulation()$redundancy[i] == "hot redundancy"){
+          data_reliability[i,] = 1-((1-exp((-1*data_simulation()$failure_rate[i])*mission_time_vec()))^2)
+        } else{
+          data_reliability[i,] = (1+(data_simulation()$failure_rate[i]*mission_time_vec()))*exp((-1*data_simulation()$failure_rate[i])*mission_time_vec())
+        }
+      }
+    }
+    
+    system_reliability = vector()
+    for(i in 1:ncol(data_reliability)){
+      system_reliability[i] = round(prod(data_reliability[,i])*100, digits = 2)
+    }
+    system_reliability
+    
+  })
+  
+  
   # simulate time to failure
   data_ttf = eventReactive(input$simulate, {
-    data_ttf = ttf.formula(data_sim_main(), data_sim_red(), data_redundancy_status(), input$sim_number)
+    data_ttf = ttf.formula(data_sim_main(), data_sim_red(), data_redundancy_status(), sim_number())
   })
   
   # collect result, time to failure turbine
@@ -163,6 +197,17 @@ server = function(input, output, session) {
   # collect result, component with lowest time to failure
   ttf_turbine_id = eventReactive(input$simulate, {
     cbind(colnames(data_ttf())[apply(data_ttf(), 1, which.min)])
+  })
+  
+  # data reliability simulation
+  data_reliability_simulation = reactive({
+    r_sys_sim_data = 0
+    for (i in 1:tail(mission_time_vec(), n=1)){
+      r_sys_sim_data[i] = round(
+        mean((ttf_turbine() >= i)*1)*100,
+        digits = 2)
+    }
+    r_sys_sim_data
   })
   
   avsys = function(ttf_turbine){ 
@@ -188,16 +233,16 @@ server = function(input, output, session) {
       #ttf components after reparation
       #--------------------------
       
-      afrep_sim_main = (-1/(data_sim_main()/365))*log(1-(c(runif(length(data_sim_main())))))
-      afrep_sim_red = (-1/(data_sim_red()/365))*log(1-(c(runif(length(data_sim_red())))))
+      afrep_sim_main = (-1/(data_sim_main()))*log(1-(c(runif(length(data_sim_main())))))
+      afrep_sim_red = (-1/(data_sim_red()))*log(1-(c(runif(length(data_sim_red())))))
       afrep_sim = afrep_sim_main
       
-      for(i in 1:ncol(afrep_sim)){
-        afrep_sim[, i] = ifelse(data_redundancy_status()[1, i] == "no redundancy", afrep_sim_main[, i],
-                                ifelse(data_redundancy_status()[1, i] == "hot redundancy", 
-                                       ifelse(afrep_sim_main[, i] > afrep_sim_red[, i], 
-                                              afrep_sim_main[, i], afrep_sim_red[, i]),
-                                       afrep_sim_main[, i] + afrep_sim_red[, i]))
+      for(j in 1:ncol(afrep_sim)){
+        afrep_sim[, j] = ifelse(data_redundancy_status()[1, j] == "no redundancy", afrep_sim_main[, j],
+                                ifelse(data_redundancy_status()[1, j] == "hot redundancy", 
+                                       ifelse(afrep_sim_main[, j] > afrep_sim_red[, j], 
+                                              afrep_sim_main[, j], afrep_sim_red[, j]),
+                                       afrep_sim_main[, j] + afrep_sim_red[, j]))
       }
       
       fc_afrep = min(afrep_sim)
@@ -265,7 +310,7 @@ server = function(input, output, session) {
   })
   
   aval_sys = eventReactive(input$simulate, {
-    melt(lapply(sum_av_sys()[1:input$sim_number, 1], function(x) ((tail(mission_time_vec(), n=1)-x)/tail(mission_time_vec(), n=1)))) #calculate availability for each iteration
+    melt(lapply(sum_av_sys()[1:sim_number(), 1], function(x) ((tail(mission_time_vec(), n=1)-x)/tail(mission_time_vec(), n=1)))) #calculate availability for each iteration
   })
   
   mean_aval_sys = eventReactive(input$simulate, {
@@ -274,7 +319,7 @@ server = function(input, output, session) {
   
   # calculate percentage of system sucess without failure
   rep_no_sys = eventReactive(input$simulate, {
-    melt(sum_av_sys()[1:input$sim_number,2]) #number of failure for each iterations
+    melt(sum_av_sys()[1:sim_number(),2]) #number of failure for each iterations
   }) 
   
   sum_rep_no_sys = eventReactive(input$simulate, {
@@ -333,10 +378,10 @@ server = function(input, output, session) {
   
   output$plot_reliability = renderPlotly({
     plot_ly() %>% 
-      add_trace(x = mission_time_vec(), y = r_sys_det(), 
-                type = 'scatter', mode = "lines", name = "Deterministic Reliability") %>%
-      add_trace(x = mission_time_vec(), y = r_sys_sim(), 
-                type = 'scatter', mode = "lines", name = "Simulated Reliability") %>%
+      add_trace(x = mission_time_vec(), y = data_reliability_equation(), 
+                type = 'scatter', mode = "lines", name = "Reliability from Equation") %>%
+      add_trace(x = mission_time_vec(), y = data_reliability_simulation(), 
+                type = 'scatter', mode = "lines", name = "Reliability from Simulation") %>%
       layout(yaxis = list(title = "Reliability (%)"), xaxis = list(title = "Year"), hovermode = 'compare')
   })
   
@@ -359,23 +404,27 @@ server = function(input, output, session) {
              title = "Distribution of Components Causing the System Failure")
   })
   
+  end.time <- Sys.time()
+  time.taken <- end.time - start.time
+  time.taken
+  
   # debugging
   ########
-  output$data_1 <- renderDataTable({
-    fc_total()
-  }) 
-  
-  output$data_2 <- renderDataTable({
-    fc_resume()
-  })
-  
-  output$data_3 <- renderDataTable({
-    plot_legend()
-
-  })
+  # output$data_1 <- renderDataTable({
+  #   data_reliability()
+  # })
+  # 
+  # output$data_2 <- renderDataTable({
+  #   fc_resume()
+  # })
+  # 
+  # output$data_3 <- renderDataTable({
+  #   plot_legend()
+  # 
+  # })
   
   output$text_output = renderText({
-    str(data_diagram())
+    time.taken
   })
   ########
   
