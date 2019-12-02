@@ -1,6 +1,5 @@
 
 server = function(input, output, session) {
-  start.time <- Sys.time()
   
   # simulation setting
   sim_number = eventReactive(input$simulate, {
@@ -31,8 +30,9 @@ server = function(input, output, session) {
   
   output$hot <- renderRHandsontable({
     DF <- data()
-    rhandsontable(DF) %>% 
-      hot_context_menu(allowRowEdit = FALSE, allowColEdit = FALSE)
+    rhandsontable(DF, stretchH = "all") %>% 
+      hot_context_menu(allowRowEdit = FALSE, allowColEdit = FALSE) %>% 
+      hot_validate_numeric(cols = "failure_rate", min = 0.1, max = 10) 
     # rhandsontable(DF, useTypes = FALSE, selectCallback = TRUE)
   })
   
@@ -214,14 +214,14 @@ server = function(input, output, session) {
     maintenance_duration = hash(data_repair_time()$components, data_repair_time()$time_to_repair)
     res = data.frame(rep = double(), fc_afrep = double(), cumt = double()) # multiple rows
     sumr = data.frame(reptime = double(), failnum = double(), tottime = double()) # single row
-    repsum = data.frame(fc_afrep_id = double())
+    repsum = data.frame(fc_afrep_id = double(), fc_afrep = double())
     # time_res = data.frame(residual_time_prod = double())
     # prod_res = data.frame(cumt_prod = double())
     
     if(ttf_turbine >= input$mission_time) {
       res[1L,] = c(0, 0, 0); 
       sumr[1L,] = c(0, 0, 0); 
-      repsum[1L,] = c(NA); 
+      repsum[1L,] = c(NA, 0) 
       # time_res[1L,] = c(0) ;
       # prod_res[1L,] = c(0)
     }   
@@ -281,8 +281,8 @@ server = function(input, output, session) {
       
       
       sumr[1L,] = c(reptime, failnum, tottime) # summary of reparation time, failure number, and total operating time
-      repsum[i,] = c(fc_afrep_id) # summary of components contributing to system failure
-      print(repsum)
+      repsum[i,] = c(fc_afrep_id, fc_afrep) # summary of components contributing to system failure
+      # print(repsum)
       if (tottime+ttf_turbine >= input$mission_time) break
       i=i+1L
     }
@@ -292,17 +292,24 @@ server = function(input, output, session) {
     
   # simulate repair and maintenance
   av_sys = eventReactive(input$simulate, {
-    withProgress(message = 'Simulation in progress',
-                 detail = 'Patience is a virtue...', value = 0, {
-                   for (i in 1:10) {
-                     incProgress(1/10)
-                     av_sys = map(ttf_turbine(), avsys)
-                   }
-                 })
+    if(sim_number() > 1000 ){
+      withProgress(message = 'Simulation in progress',
+                   detail = 'Patience is a virtue...', value = 0, {
+                     for (i in 1:4) {
+                       incProgress(1/4)
+                       av_sys = map(ttf_turbine(), avsys)
+                     }
+                   })
+    } else {av_sys = map(ttf_turbine(), avsys)}
     
-    av_sys 
-    
+    av_sys
+
   })
+  
+  # av_sys = eventReactive(input$simulate, {
+  #                       av_sys = map(ttf_turbine(), avsys)
+  # 
+  # })
   
   sum_av_sys = eventReactive(input$simulate, {
     data = t(sapply(av_sys(), "[[", 2))
@@ -367,7 +374,25 @@ server = function(input, output, session) {
       arrange(failure_pct)
   }) 
   
+  # Display Main Variables
   
+  output$reliability = renderValueBox({
+    valueBox(
+      paste(tail(data_reliability_simulation(), n = 1), "%"), 
+      paste("Reliability at", input$mission_time, "year(s)"), color = "green", icon = icon("chart-line"))
+  })
+  
+  output$availability = renderValueBox({
+    valueBox(
+      paste(round((mean(aval_sys()[,1]))*100, digits = 2), "%"), 
+      paste("Availability for", input$mission_time, "year(s)"), color = "blue", icon = icon("chart-bar"))
+  })
+  
+  output$failure_numbers = renderValueBox({
+    valueBox(
+      round(mean_rep_no_sys(), digits = 2), 
+      paste("Expected Failure Numbers for", input$mission_time, "year(s)"), color = "red", icon = icon("wrench"))
+  })
   
   # render plot
   # rbd
@@ -391,8 +416,6 @@ server = function(input, output, session) {
             name = paste("Failure Numbers Probability for", input$mission_time, "year(s)") , type = "bar") %>%
       layout(xaxis = list(title = "Number of Failures", dtick = 1),
              yaxis = list(title = "Probability of Occurence (%)", dtick= 5),
-             title = paste(as.character(mean_rep_no_sys()), 
-                           "Expected Failure Numbers", "<br>", "for", tail(mission_time_vec(), n=1), "year(s)"),
              font = list(size = 10))
   })
   
@@ -404,9 +427,6 @@ server = function(input, output, session) {
              title = "Distribution of Components Causing the System Failure")
   })
   
-  end.time <- Sys.time()
-  time.taken <- end.time - start.time
-  time.taken
   
   # debugging
   ########
@@ -423,11 +443,13 @@ server = function(input, output, session) {
   # 
   # })
   
-  output$text_output = renderText({
-    time.taken
-  })
+  # output$text_output = renderText({
+  #   time.taken
+  # })
   ########
-  
+  output$readme <- renderUI(
+    includeHTML("readme.html")
+    )
   
 }
 
