@@ -15,6 +15,8 @@ library(hash)
 library(htmlwidgets)
 library(Rfast)
 library(DiagrammeR)
+library(shinycssloaders)
+library(shinyWidgets)
 
 # function
 
