@@ -15,6 +15,8 @@ library(hash)
 library(htmlwidgets)
 library(Rfast)
 library(DiagrammeR)
+library(shinycssloaders)
+library(shinyWidgets)
 
 # function
 
@@ -26,10 +28,10 @@ ttf.formula = function(data_sim_main, data_sim_red, data_redundancy_status, sim_
   # red = redundant component
   
   # generate random number to simulate time to failure
-  ttf_sim_main = as.data.frame(map_dfr(data_sim_main/365, 
+  ttf_sim_main = as.data.frame(map_dfr(data_sim_main, 
                                        function(x) (-1/x)*log(1-(cbind(runif(sim_number))))))
   
-  ttf_sim_red = as.data.frame(map_dfr(data_sim_red/365, 
+  ttf_sim_red = as.data.frame(map_dfr(data_sim_red, 
                                       function(x) (-1/x)*log(1-(cbind(runif(sim_number))))))
   
   # select ttf based on redudancy selection
