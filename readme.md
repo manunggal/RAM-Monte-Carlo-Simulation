@@ -218,11 +218,14 @@ simulation.
 About this simulation
 =====================
 
-This simulation is developed in R programming language. It is hosted in
-[shinyapps.io](https://www.shinyapps.io/). Due to limitation of this
-account, several simulation parameters are constrained to certain
-maximum values.
+Live Demo --> [manunk.shinyapps.io/wind_turbine_ram](manunk.shinyapps.io/wind_turbine_ram)
 
+This simulation is developed in R programming language Shiny app. It is hosted in
+[shinyapps.io](https://www.shinyapps.io/). 
+It implements the RAM methodology described above as a fully interactive web application — no installation required to use the live version.
+Due to limitation of this account, several simulation parameters are constrained to certain maximum values.
+
+**Application Parameters**
 <table>
 <colgroup>
 <col style="width: 50%" />
