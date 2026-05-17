@@ -218,14 +218,12 @@ simulation.
 About this simulation
 =====================
 
-Live Demo --> [manunk.shinyapps.io/wind_turbine_ram](manunk.shinyapps.io/wind_turbine_ram)
+🔗 **[Live Demo → manunk.shinyapps.io/wind_turbine_ram](https://manunk.shinyapps.io/wind_turbine_ram)**
 
-This simulation is developed in R programming language Shiny app. It is hosted in
-[shinyapps.io](https://www.shinyapps.io/). 
-It implements the RAM methodology described above as a fully interactive web application — no installation required to use the live version.
-Due to limitation of this account, several simulation parameters are constrained to certain maximum values.
+This simulation is developed in R (Shiny) and hosted on shinyapps.io. It implements the RAM methodology described above as a fully interactive web application — no installation required to use the live version.
 
-**Application Parameters**
+## Application parameters
+
 <table>
 <colgroup>
 <col style="width: 50%" />
@@ -272,3 +270,47 @@ Due to limitation of this account, several simulation parameters are constrained
 </tr>
 </tbody>
 </table>
+
+## Outputs
+
+| Output | Description |
+|---|---|
+| System reliability | Probability of surviving to mission end — equation vs. simulation curves plotted together |
+| System availability | Mean uptime fraction across all iterations |
+| Expected failure count | Probability distribution of failure occurrences |
+| Failure cause breakdown | Which components drive system-level failures, as a percentage |
+
+## Tech stack
+
+- **R / Shiny** — simulation engine and reactive web app framework
+- **rhandsontable** — interactive spreadsheet-style component input table
+- **DiagrammeR / Mermaid** — dynamic RBD diagram rendered from component configuration
+- **Plotly** — interactive output charts
+- **hash** — dictionary lookups for component repair time mapping
+- **purrr** — functional iteration over simulation results
+- **dplyr / tidyr** — data wrangling
+
+## Run locally
+
+```r
+# Install dependencies
+install.packages(c("shiny", "shinydashboard", "rhandsontable",
+                   "DiagrammeR", "plotly", "hash", "purrr",
+                   "dplyr", "tidyr", "reshape2"))
+
+# Clone the repo and run
+shiny::runApp("path/to/RAM-Monte-Carlo-Simulation")
+```
+
+## Status and roadmap
+
+![Status](https://img.shields.io/badge/status-active-brightgreen)
+![Platform](https://img.shields.io/badge/platform-R%20Shiny-blue)
+![Deployed](https://img.shields.io/badge/deployed-shinyapps.io-orange)
+
+This repository forms the simulation foundation for [`Offshore-Wind-Farm-RAM-Simulation`](https://github.com/manunggal/Offshore-Wind-Farm-RAM-Simulation), which extends the engine with wind resource variability and maintenance vessel scheduling — factors critical to offshore wind farm availability analysis.
+
+## Author
+
+**Manunggal Sukendro** — Reliability engineer with a focus on offshore energy systems.  
+[github.com/manunggal](https://github.com/manunggal)
